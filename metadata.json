@@ -1,0 +1,6 @@
+{
+  "name": "Chemicals Hub Ethiopia",
+  "description": "A professional chemical raw material sourcing and supply platform based in Addis Ababa, Ethiopia.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

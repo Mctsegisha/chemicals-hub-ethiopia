@@ -1,0 +1,28 @@
+# Robots.txt for Chemicals Hub Ethiopia (https://chemicalshubethiopia.com)
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /*?*sort=
+Disallow: /*?*filter=
+
+# Explicit major search engine crawlers
+User-agent: Googlebot
+Allow: /
+
+User-agent: Googlebot-Image
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: Applebot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+# Host & Sitemap location
+Host: https://chemicalshubethiopia.com
+Sitemap: https://chemicalshubethiopia.com/sitemap.xml
+
+
