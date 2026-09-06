@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, 
@@ -13,10 +13,14 @@ import {
   ShieldCheck, 
   Building2, 
   ArrowLeft, 
-  ExternalLink 
+  ExternalLink,
+  Camera,
+  Loader2
 } from 'lucide-react';
 import { Product, Category } from '../types';
 import { useLanguage } from '../context/LanguageContext';
+import { useProducts } from '../context/ProductContext';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { CONTACT_INFO, openTelegramApp } from '../constants';
 import { SEO, buildProductSchema } from './SEO';
 
@@ -39,6 +43,106 @@ export default function ProductDetailModal({
 }: ProductDetailModalProps) {
   const { language, t } = useLanguage();
   const isEn = language === 'en';
+  const { updateProduct } = useProducts();
+  const [displayImage, setDisplayImage] = useState(product.image);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadToast, setUploadToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDisplayImage(product.image);
+  }, [product.image]);
+
+  const handleModalImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 15 * 1024 * 1024) {
+      alert(isEn ? 'File size must be under 15MB' : 'የፋይሉ መጠን ከ15MB ማነስ አለበት');
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      let finalImageUrl: string | null = null;
+
+      if (supabase && isSupabaseConfigured) {
+        try {
+          const fileExt = file.name.split('.').pop() || 'jpg';
+          const fileName = `${product.id}-${Date.now()}.${fileExt}`;
+          const filePath = `products/${fileName}`;
+
+          const { data: uploadData, error: uploadErr } = await supabase.storage
+            .from('product-images')
+            .upload(filePath, file, { upsert: true });
+
+          if (!uploadErr && uploadData) {
+            const { data: urlData } = supabase.storage
+              .from('product-images')
+              .getPublicUrl(filePath);
+            if (urlData?.publicUrl) {
+              finalImageUrl = urlData.publicUrl;
+            }
+          }
+        } catch (storageErr) {
+          console.warn('Storage upload skipped, falling back to canvas compression', storageErr);
+        }
+      }
+
+      if (!finalImageUrl) {
+        finalImageUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 1200;
+              const MAX_HEIGHT = 900;
+              let width = img.width;
+              let height = img.height;
+
+              if (width > height) {
+                if (width > MAX_WIDTH) {
+                  height *= MAX_WIDTH / width;
+                  width = MAX_WIDTH;
+                }
+              } else {
+                if (height > MAX_HEIGHT) {
+                  width *= MAX_HEIGHT / height;
+                  height = MAX_HEIGHT;
+                }
+              }
+
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(img, 0, 0, width, height);
+                resolve(canvas.toDataURL('image/jpeg', 0.82));
+              } else {
+                resolve(event.target?.result as string);
+              }
+            };
+            img.onerror = () => resolve(event.target?.result as string);
+            img.src = event.target?.result as string;
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+
+      setDisplayImage(finalImageUrl);
+      await updateProduct(product.id, { image: finalImageUrl });
+      setUploadToast(isEn ? 'Image updated!' : 'ፎቶው ተቀይሯል!');
+      setTimeout(() => setUploadToast(null), 3000);
+    } catch (err: any) {
+      console.error('Failed to upload modal image:', err);
+      alert(isEn ? 'Failed to upload image. Please try again.' : 'ፎቶውን መጫን አልተቻለም።');
+    } finally {
+      setIsUploading(false);
+      e.target.value = '';
+    }
+  };
 
   // Close on Escape key
   useEffect(() => {
@@ -149,16 +253,49 @@ export default function ProductDetailModal({
             {/* Main Header & Image Grid */}
             <div className="grid md:grid-cols-12 gap-8 items-start">
               {/* Product Visual */}
-              <div className="md:col-span-5 relative aspect-[4/3] rounded-3xl overflow-hidden bg-brand-light border border-gray-150 shadow-sm">
+              <div className="md:col-span-5 relative aspect-[4/3] rounded-3xl overflow-hidden bg-brand-light border border-gray-150 shadow-sm group/modalimg">
                 <img 
-                  src={product.image || 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=800'}
+                  src={displayImage || product.image || 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=800'}
                   alt={`${product.name} - Chemical raw materials supplier in Addis Ababa, Ethiopia`}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover transition-transform duration-500 group-hover/modalimg:scale-105"
                   loading="eager"
                 />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
+
                 <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white text-[10px] font-bold uppercase tracking-wider">
                   {catName}
                 </div>
+
+                {uploadToast && (
+                  <div className="absolute top-3 right-3 px-3 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-bold shadow-md">
+                    {uploadToast}
+                  </div>
+                )}
+
+                {/* Upload / Change Image button */}
+                <label 
+                  className="absolute bottom-3 right-3 px-3 py-1.5 rounded-xl bg-black/75 hover:bg-black/90 text-white backdrop-blur-md border border-white/25 shadow-md text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 z-10"
+                  title={isEn ? "Upload chemical photo" : "የምርት ፎቶ ጫን"}
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin text-white" />
+                      <span>{isEn ? 'Uploading...' : 'በመጫን ላይ...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Camera size={13} className="text-white" />
+                      <span>{isEn ? 'Upload Photo' : 'ፎቶ ቀይር'}</span>
+                    </>
+                  )}
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="hidden" 
+                    onChange={handleModalImageUpload}
+                    disabled={isUploading}
+                  />
+                </label>
               </div>
 
               {/* Product Key Metadata */}

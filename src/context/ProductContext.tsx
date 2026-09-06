@@ -274,6 +274,8 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateProduct = async (id: string, updatedFields: Partial<Product>) => {
+    let targetProduct: Product | undefined;
+
     setProducts(prev =>
       prev.map(p => {
         if (p.id === id) {
@@ -281,28 +283,50 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (updatedFields.name && (!updatedFields.slug || updatedFields.slug === p.slug)) {
             updated.slug = updatedFields.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
           }
+          targetProduct = updated;
           return updated;
         }
         return p;
       })
     );
 
-    if (supabase && isSupabaseConfigured) {
+    if (supabase && isSupabaseConfigured && targetProduct) {
       try {
-        await supabase
+        const updatePayload: Record<string, any> = {};
+        if (updatedFields.name !== undefined) updatePayload.name = updatedFields.name;
+        if (updatedFields.category !== undefined) updatePayload.category = updatedFields.category;
+        if (updatedFields.description !== undefined) updatePayload.description = updatedFields.description;
+        if (updatedFields.slug !== undefined) updatePayload.slug = updatedFields.slug;
+        if (updatedFields.image !== undefined) updatePayload.image = updatedFields.image;
+        if (updatedFields.specifications !== undefined) updatePayload.specifications = updatedFields.specifications;
+        if (updatedFields.usage !== undefined) updatePayload.usage = updatedFields.usage;
+        if (updatedFields.benefits !== undefined) updatePayload.benefits = updatedFields.benefits;
+        if (updatedFields.packaging !== undefined) updatePayload.packaging = updatedFields.packaging;
+
+        const { data, error: updateError } = await supabase
           .from('products')
-          .update({
-            ...(updatedFields.name ? { name: updatedFields.name } : {}),
-            ...(updatedFields.category ? { category: updatedFields.category } : {}),
-            ...(updatedFields.description ? { description: updatedFields.description } : {}),
-            ...(updatedFields.slug ? { slug: updatedFields.slug } : {}),
-            ...(updatedFields.image ? { image: updatedFields.image } : {}),
-            ...(updatedFields.specifications ? { specifications: updatedFields.specifications } : {}),
-            ...(updatedFields.usage ? { usage: updatedFields.usage } : {}),
-            ...(updatedFields.benefits ? { benefits: updatedFields.benefits } : {}),
-            ...(updatedFields.packaging ? { packaging: updatedFields.packaging } : {})
-          })
-          .eq('id', id);
+          .update(updatePayload)
+          .eq('id', id)
+          .select();
+
+        // If row not found in remote DB, insert it with full details
+        if (!updateError && (!data || data.length === 0)) {
+          await supabase.from('products').upsert([
+            {
+              id: targetProduct.id,
+              name: targetProduct.name,
+              category: targetProduct.category,
+              description: targetProduct.description,
+              slug: targetProduct.slug,
+              image: targetProduct.image,
+              specifications: targetProduct.specifications,
+              usage: targetProduct.usage,
+              benefits: targetProduct.benefits,
+              packaging: targetProduct.packaging,
+              is_custom: true
+            }
+          ]);
+        }
       } catch (e) {
         console.error('Remote DB update failed', e);
       }

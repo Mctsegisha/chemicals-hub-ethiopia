@@ -37,4 +37,7 @@ export interface Category {
   icon?: string;
   description?: string;
   slug?: string;
+  image?: string;
+  keyChemicals?: string[];
 }
+

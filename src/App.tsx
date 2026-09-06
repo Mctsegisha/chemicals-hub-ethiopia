@@ -2,11 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { HelmetProvider } from 'react-helmet-async';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { ProductProvider, useProducts } from './context/ProductContext';
-import { SEO, buildMasterSchema, buildCategorySchema } from './components/SEO';
+import { SEO, buildMasterSchema, buildCategorySchema, buildProductSchema } from './components/SEO';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import About from './components/About';
-import Industries from './components/Industries';
 import ProductCatalog from './components/ProductCatalog';
 import Services from './components/Services';
 import WhyChooseUs from './components/WhyChooseUs';
@@ -14,7 +13,7 @@ import FAQ from './components/FAQ';
 import Contact from './components/Contact';
 import Footer from './components/Footer';
 import FloatingWhatsApp from './components/FloatingWhatsApp';
-import ProductDetailModal from './components/ProductDetailModal';
+import ProductDetailPage from './components/ProductDetailPage';
 import ProductQuoteModal from './components/ProductQuoteModal';
 import NotFound from './components/NotFound';
 import { CATEGORIES, PRODUCTS } from './constants';
@@ -129,12 +128,7 @@ function AppContent() {
   const handleSelectProduct = (product: Product) => {
     window.history.pushState(null, '', `/product/${product.slug}`);
     setCurrentPath(`/product/${product.slug}`);
-  };
-
-  const handleCloseProductDetail = () => {
-    const target = activeCategoryObject ? `/category/${activeCategoryObject.slug}` : '/';
-    window.history.pushState(null, '', target);
-    setCurrentPath(target);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleOpenQuote = (product: Product) => {
@@ -174,7 +168,22 @@ function AppContent() {
   let canonicalUrl = '/';
   let schemaData: object = buildMasterSchema(language, allProductsList);
 
-  if (route.type === 'category' && activeCategoryObject) {
+  if (route.type === 'product' && activeProductObject) {
+    pageTitle = isEn
+      ? `${activeProductObject.name} in Ethiopia - Sourcing & Price`
+      : `${activeProductObject.name} በኢትዮጵያ - አቅርቦትና ዋጋ`;
+
+    pageDescription = isEn
+      ? `Source high-purity ${activeProductObject.name} in Addis Ababa, Ethiopia. CAS: ${activeProductObject.casNumber || 'N/A'}. Grade: ${activeProductObject.grade || 'Industrial'}. Ex-Stock Kaliti delivery with COA & MSDS.`
+      : `በአዲስ አበባ እና በኢትዮጵያ ከፍተኛ ጥራት ያለው ${activeProductObject.name} በታማኝነት ያግኙ። የጥራት ማረጋገጫ COA እና MSDS አብሮት ይቀርባል።`;
+
+    canonicalUrl = `/product/${activeProductObject.slug}`;
+    schemaData = buildProductSchema(
+      activeProductObject, 
+      CATEGORIES.find(c => c.id === activeProductObject.category), 
+      language
+    );
+  } else if (route.type === 'category' && activeCategoryObject) {
     pageTitle = isEn
       ? `${activeCategoryObject.name} in Ethiopia - Sourcing & Price`
       : `${activeCategoryObject.name} በኢትዮጵያ - አቅርቦትና ዋጋ`;
@@ -207,41 +216,44 @@ function AppContent() {
         title={pageTitle}
         description={pageDescription}
         canonical={canonicalUrl}
+        ogType={route.type === 'product' ? 'product' : 'website'}
+        ogImage={route.type === 'product' && activeProductObject?.image ? activeProductObject.image : undefined}
         schema={schemaData}
         language={language}
       />
       <Navbar />
-      <main>
-        <Hero />
-        <About />
-        <Industries />
-        <ProductCatalog 
-          initialCategory={initialCatId}
-          onSelectProduct={handleSelectProduct}
-          onCategoryChangeExternal={handleCategoryChangeExternal}
-        />
-        <Services />
-        <WhyChooseUs />
-        <FAQ />
-        <Contact />
-      </main>
+      {route.type === 'product' && activeProductObject ? (
+        <main className="pt-20 sm:pt-24">
+          <ProductDetailPage 
+            product={activeProductObject}
+            category={CATEGORIES.find(c => c.id === activeProductObject.category)}
+            allProducts={allProductsList}
+            onBack={() => {
+              window.history.pushState(null, '', '/#products');
+              setCurrentPath('/');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onOpenQuoteModal={handleOpenQuote}
+            onSelectProduct={handleSelectProduct}
+          />
+        </main>
+      ) : (
+        <main>
+          <Hero />
+          <About />
+          <ProductCatalog 
+            initialCategory={initialCatId}
+            onSelectProduct={handleSelectProduct}
+            onCategoryChangeExternal={handleCategoryChangeExternal}
+          />
+          <Services />
+          <WhyChooseUs />
+          <FAQ />
+          <Contact />
+        </main>
+      )}
       <Footer />
       <FloatingWhatsApp />
-
-      {/* Deep-Linked Product Detail Modal */}
-      {route.type === 'product' && activeProductObject && (
-        <ProductDetailModal 
-          product={activeProductObject}
-          category={CATEGORIES.find(c => c.id === activeProductObject.category)}
-          allProducts={allProductsList}
-          onClose={handleCloseProductDetail}
-          onOpenQuoteModal={handleOpenQuote}
-          onSelectRelatedProduct={(slug) => {
-            window.history.pushState(null, '', `/product/${slug}`);
-            setCurrentPath(`/product/${slug}`);
-          }}
-        />
-      )}
 
       {/* Global Product Quote Modal */}
       <ProductQuoteModal 

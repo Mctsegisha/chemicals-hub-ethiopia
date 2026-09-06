@@ -8,39 +8,49 @@ export const CATEGORIES: Category[] = [
     slug: 'all-chemicals-ethiopia'
   },
   {
+    id: 'industrial',
+    name: 'Industrial Chemicals',
+    icon: 'Factory',
+    description: 'Essential industrial chemicals for Ethiopia\'s manufacturing sector, including paint, textile, and mining industries. Reliable sourcing and supply in Addis Ababa.',
+    slug: 'industrial-chemicals-supplier-ethiopia',
+    image: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=800&q=80',
+    keyChemicals: ['Hydrogen Peroxide 50%', 'Activated Carbon', 'Soda Ash Dense']
+  },
+  {
     id: 'detergent',
     name: 'Detergent Chemicals',
     icon: 'Droplets',
     description: 'High-quality detergent chemicals in Ethiopia for soap, liquid soap, and detergent powder production. We supply SLES, LABSA, Caustic Soda, and more in Addis Ababa.',
-    slug: 'detergent-chemicals-ethiopia'
+    slug: 'detergent-chemicals-ethiopia',
+    image: 'https://images.unsplash.com/photo-1603555501671-8f96b3fce8b4?auto=format&fit=crop&w=800&q=80',
+    keyChemicals: ['LABSA 96%', 'SLES 70%', 'Caustic Soda Flakes']
   },
   {
     id: 'cosmetic',
     name: 'Cosmetic Ingredients',
     icon: 'Sparkles',
     description: 'Premium cosmetic raw materials in Addis Ababa for skincare, haircare, and beauty products. Sourcing the best ingredients for Ethiopian cosmetic manufacturers.',
-    slug: 'cosmetic-ingredients-addis-ababa'
-  },
-  {
-    id: 'industrial',
-    name: 'Industrial Chemicals',
-    icon: 'Factory',
-    description: 'Essential industrial chemicals for Ethiopia\'s manufacturing sector, including paint, textile, and mining industries. Reliable sourcing and supply in Addis Ababa.',
-    slug: 'industrial-chemicals-supplier-ethiopia'
+    slug: 'cosmetic-ingredients-addis-ababa',
+    image: 'https://images.unsplash.com/photo-1608248597359-598d9cb63ca5?auto=format&fit=crop&w=800&q=80',
+    keyChemicals: ['Glycerin USP 99.5%', 'Carbomer 940', 'Vitamin E Oil']
   },
   {
     id: 'food',
     name: 'Food Additives',
     icon: 'Utensils',
     description: 'Food-grade additives and ingredients for the Ethiopian food and beverage industry. Citric acid, preservatives, and flavor enhancers supplied in Addis Ababa.',
-    slug: 'food-additives-supplier-ethiopia'
+    slug: 'food-additives-supplier-ethiopia',
+    image: 'https://images.unsplash.com/photo-1587854692152-cbe660dbde88?auto=format&fit=crop&w=800&q=80',
+    keyChemicals: ['Citric Acid Anhydrous', 'Sodium Benzoate', 'Corn Starch']
   },
   {
     id: 'laboratory',
     name: 'Laboratory Chemicals',
     icon: 'FlaskConical',
     description: 'High-purity analytical reagent (AR) grade and laboratory chemicals in Addis Ababa for university research, testing laboratories, and quality control.',
-    slug: 'laboratory-chemicals-supplier-ethiopia'
+    slug: 'laboratory-chemicals-supplier-ethiopia',
+    image: 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=800&q=80',
+    keyChemicals: ['Hydrochloric Acid 37% AR', 'Ethanol 96% AR', 'Buffer Solutions']
   }
 ];
 

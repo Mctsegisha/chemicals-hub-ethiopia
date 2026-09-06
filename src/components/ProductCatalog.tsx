@@ -23,12 +23,16 @@ import {
   Layers,
   Loader2,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  Camera,
+  UploadCloud,
+  ImageIcon
 } from 'lucide-react';
 import { PRODUCTS, CATEGORIES, CONTACT_INFO, openTelegramApp } from '../constants';
 import { Product } from '../types';
 import { useLanguage } from '../context/LanguageContext';
 import { useProducts } from '../context/ProductContext';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import ProductQuoteModal from './ProductQuoteModal';
 import { ProductCatalogSkeletonGrid } from './Skeletons';
 
@@ -50,9 +54,11 @@ export default function ProductCatalog({
   onCategoryChangeExternal,
 }: ProductCatalogProps = {}) {
   const { language, t } = useLanguage();
-  const { products, loading, error, refreshProducts } = useProducts();
+  const isEn = language === 'en';
+  const { products, loading, error, refreshProducts, updateProduct, addProduct } = useProducts();
   const [activeCategory, setActiveCategory] = useState(initialCategory);
   const [searchQuery, setSearchQuery] = useState('');
+  const [uploadingProductId, setUploadingProductId] = useState<string | null>(null);
 
   // Sync external category changes (e.g. from URL navigation)
   useEffect(() => {
@@ -72,6 +78,105 @@ export default function ProductCatalog({
 
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Upload and optimize product image
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, productId: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 15 * 1024 * 1024) {
+      setToastMessage(isEn ? 'File size must be under 15MB' : 'የፋይሉ መጠን ከ15MB ማነስ አለበት');
+      setTimeout(() => setToastMessage(null), 4000);
+      return;
+    }
+
+    setUploadingProductId(productId);
+    setToastMessage(isEn ? 'Uploading & optimizing product photo...' : 'የምርት ፎቶ በመጫን ላይ...');
+
+    try {
+      let finalImageUrl: string | null = null;
+
+      // 1. Try Supabase Storage upload if configured
+      if (supabase && isSupabaseConfigured) {
+        try {
+          const fileExt = file.name.split('.').pop() || 'jpg';
+          const fileName = `${productId}-${Date.now()}.${fileExt}`;
+          const filePath = `products/${fileName}`;
+
+          const { data: uploadData, error: uploadErr } = await supabase.storage
+            .from('product-images')
+            .upload(filePath, file, { upsert: true });
+
+          if (!uploadErr && uploadData) {
+            const { data: urlData } = supabase.storage
+              .from('product-images')
+              .getPublicUrl(filePath);
+            if (urlData?.publicUrl) {
+              finalImageUrl = urlData.publicUrl;
+            }
+          }
+        } catch (storageErr) {
+          console.warn('Storage bucket upload skipped, using web-optimized data format', storageErr);
+        }
+      }
+
+      // 2. High-performance Canvas compressor fallback (1200px max, 0.82 JPEG, crisp & compact)
+      if (!finalImageUrl) {
+        finalImageUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 1200;
+              const MAX_HEIGHT = 900;
+              let width = img.width;
+              let height = img.height;
+
+              if (width > height) {
+                if (width > MAX_WIDTH) {
+                  height *= MAX_WIDTH / width;
+                  width = MAX_WIDTH;
+                }
+              } else {
+                if (height > MAX_HEIGHT) {
+                  width *= MAX_HEIGHT / height;
+                  height = MAX_HEIGHT;
+                }
+              }
+
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(img, 0, 0, width, height);
+                resolve(canvas.toDataURL('image/jpeg', 0.82));
+              } else {
+                resolve(event.target?.result as string);
+              }
+            };
+            img.onerror = () => resolve(event.target?.result as string);
+            img.src = event.target?.result as string;
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+
+      // 3. Persist updated image to ProductContext & Supabase
+      await updateProduct(productId, { image: finalImageUrl });
+
+      setToastMessage(isEn ? 'Product image updated successfully!' : 'የምርት ፎቶው በተሳካ ሁኔታ ተቀይሯል!');
+      setTimeout(() => setToastMessage(null), 3500);
+    } catch (err: any) {
+      console.error('Failed to upload product image:', err);
+      setToastMessage(isEn ? 'Failed to upload photo. Please try again.' : 'ፎቶውን መጫን አልተቻለም። እባክዎ እንደገና ይሞክሩ።');
+      setTimeout(() => setToastMessage(null), 4000);
+    } finally {
+      setUploadingProductId(null);
+      e.target.value = '';
+    }
+  };
 
   // RFQ Cart State persisted in localStorage
   const [rfqCart, setRfqCart] = useState<RFQItem[]>(() => {
@@ -385,6 +490,21 @@ Generated via Chemicals Hub Ethiopia Sourcing Portal (+251 972 691 911)
                 const cartItem = rfqCart.find(item => item.id === product.id);
                 const primarySpec = (product.specifications && product.specifications[0]) || 'Active Matter: 96%';
 
+                const navigateToProduct = (e?: React.MouseEvent) => {
+                  if (e) {
+                    const target = e.target as HTMLElement;
+                    if (target.closest('button') || target.closest('input') || target.closest('select')) {
+                      return;
+                    }
+                  }
+                  if (onSelectProduct) {
+                    onSelectProduct(product);
+                  }
+                  window.history.pushState(null, '', `/product/${product.slug}`);
+                  window.dispatchEvent(new Event('popstate'));
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                };
+
                 return (
                   <motion.div
                     layout
@@ -393,143 +513,149 @@ Generated via Chemicals Hub Ethiopia Sourcing Portal (+251 972 691 911)
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.95 }}
                     transition={{ duration: 0.3 }}
-                    className={`bg-brand-light p-7 sm:p-8 rounded-[40px] border transition-all duration-500 group flex flex-col h-full relative ${
-                      isAdded ? 'border-brand-blue/40 bg-white shadow-lg' : 'border-gray-150 hover:border-brand-blue/30 hover:bg-white hover:shadow-2xl'
+                    onClick={navigateToProduct}
+                    className={`bg-white rounded-3xl border transition-all duration-300 group flex flex-col h-full overflow-hidden shadow-xs hover:shadow-xl hover:-translate-y-1 cursor-pointer ${
+                      isAdded 
+                        ? 'border-brand-blue ring-2 ring-brand-blue/15' 
+                        : 'border-slate-200/80 hover:border-brand-blue/40'
                     }`}
                   >
-                    {/* Top Row: Cart icon & Category Pill Tag + Action icons */}
-                    <div className="flex items-center justify-between mb-5">
-                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500 shadow-sm border ${
-                        isAdded ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white border-gray-100 text-brand-blue group-hover:bg-brand-blue group-hover:text-white'
-                      }`}>
-                        <ShoppingCart size={20} />
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <span className="px-3.5 py-1.5 rounded-full bg-blue-50/90 border border-blue-200/80 text-[9px] font-bold uppercase tracking-wider text-brand-blue">
-                          {resolveCategoryTabName(product.category, '')}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Product Name with Crawlable SEO Link */}
-                    <h3 className="text-lg sm:text-xl font-bold text-brand-dark mb-2.5 leading-snug group-hover:text-brand-blue transition-colors line-clamp-2">
-                      <a
-                        href={`/product/${product.slug}`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          if (onSelectProduct) {
-                            onSelectProduct(product);
-                          }
-                          window.history.pushState(null, '', `/product/${product.slug}`);
-                          window.dispatchEvent(new Event('popstate'));
-                        }}
-                        className="hover:underline"
-                        title={`${product.name} - Sourcing & Technical Specs in Addis Ababa, Ethiopia`}
-                      >
-                        {product.name}
-                      </a>
-                    </h3>
-
-                    {/* Primary Specification with Sparkles icon */}
-                    <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-brand-dark/70">
-                      <Sparkles size={13} className="text-brand-blue flex-shrink-0" />
-                      <span className="truncate">{primarySpec}</span>
-                    </div>
-
-                    {/* View Details / Specs button for SEO & UX */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (onSelectProduct) onSelectProduct(product);
-                        window.history.pushState(null, '', `/product/${product.slug}`);
-                        window.dispatchEvent(new Event('popstate'));
-                      }}
-                      className="mb-3 text-[10px] font-bold uppercase tracking-wider text-brand-blue hover:text-brand-dark inline-flex items-center gap-1 cursor-pointer transition-colors text-left"
+                    {/* Flush Top Product Image - exactly matching reference design */}
+                    <div 
+                      onClick={() => navigateToProduct()}
+                      className="relative aspect-[4/3] w-full overflow-hidden bg-slate-100 cursor-pointer"
                     >
-                      <span>{language === 'en' ? 'View Full Specs & COA →' : 'ዝርዝር መረጃና COA ይመልከቱ →'}</span>
-                    </button>
-                    
-                    {/* Description Paragraph */}
-                    <p className="text-xs text-brand-dark/50 mb-6 flex-grow leading-relaxed line-clamp-3">
-                      {product.description}
-                    </p>
+                      <img 
+                        src={product.image || 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=800&q=80'}
+                        alt={`${product.name} - Chemical raw materials in Addis Ababa, Ethiopia`}
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
 
-                    {/* Actions Section matching uploaded image */}
-                    <div className="mt-auto space-y-2.5">
-                      {/* Primary Action: Request a Quote Button */}
-                      <button
-                        id={`quote-btn-${product.id}`}
-                        type="button"
-                        onClick={() => handleOpenQuoteModal(product)}
-                        className="w-full py-3.5 px-4 rounded-2xl bg-brand-blue text-white text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-brand-dark transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-brand-blue/15 group-hover:shadow-lg"
-                      >
-                        <FileText size={14} />
-                        {t('modal.quoteTitle')}
-                      </button>
+                      {/* Category Badge on Top-Left */}
+                      <div className="absolute top-3.5 left-3.5 px-3 py-1 rounded-full bg-white/95 backdrop-blur-md border border-gray-200 text-[9px] font-bold uppercase tracking-wider text-brand-blue shadow-xs pointer-events-none">
+                        {resolveCategoryTabName(product.category, '')}
+                      </div>
 
-                      {/* Secondary Action: Multi-item RFQ cart button */}
-                      {!isAdded ? (
-                        <button 
-                          type="button"
-                          onClick={() => addToCart(product.id)}
-                          className="w-full py-2.5 px-3 rounded-xl border border-gray-200 hover:border-brand-blue/30 text-brand-dark/60 hover:text-brand-blue bg-white text-[9px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                        >
-                          <Plus size={12} />
-                          {language === 'en' ? '+ Add to RFQ List' : '+ ወደ መጠየቂያ ዝርዝር ጨምር'}
-                        </button>
-                      ) : (
-                        <div className="space-y-2 pt-1">
-                          <div className="flex items-center justify-between bg-brand-light px-3 py-2 rounded-xl border border-gray-150">
-                            <button 
-                              type="button"
-                              onClick={() => cartItem && updateCartItemQty(product.id, Math.max(0, cartItem.quantity - 100))}
-                              className="p-1 hover:text-brand-blue text-brand-dark/40 hover:bg-white rounded-lg transition-colors cursor-pointer"
-                            >
-                              <Minus size={13} />
-                            </button>
-                            
-                            <div className="flex items-center gap-1">
-                              <input 
-                                type="number" 
-                                min="1"
-                                value={cartItem?.quantity || 500}
-                                onChange={(e) => updateCartItemQty(product.id, parseInt(e.target.value) || 0)}
-                                className="w-14 text-center bg-transparent border-none text-xs font-bold text-brand-dark focus:outline-none focus:ring-0 p-0"
-                              />
-                              
-                              <select 
-                                value={cartItem?.unit || 'kg'}
-                                onChange={(e) => updateCartItemUnit(product.id, e.target.value)}
-                                className="bg-transparent border-none text-[9px] font-bold text-brand-blue uppercase tracking-wider focus:outline-none focus:ring-0 p-0 cursor-pointer"
-                              >
-                                <option value="kg">kg</option>
-                                <option value="tons">tons</option>
-                                <option value="L">L</option>
-                                <option value="drums">drums</option>
-                                <option value="bags">bags</option>
-                              </select>
-                            </div>
-   
-                            <button 
-                              type="button"
-                              onClick={() => cartItem && updateCartItemQty(product.id, cartItem.quantity + 100)}
-                              className="p-1 hover:text-brand-blue text-brand-dark/40 hover:bg-white rounded-lg transition-colors cursor-pointer"
-                            >
-                              <Plus size={13} />
-                            </button>
-                          </div>
-   
-                          <button 
-                            type="button"
-                            onClick={() => setIsCartOpen(true)}
-                            className="w-full py-2.5 rounded-xl bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-[9px] font-bold uppercase tracking-wider hover:bg-emerald-100 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      {/* Stock Status on Top-Right */}
+                      <div className="absolute top-3.5 right-3.5 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[9px] font-bold uppercase tracking-wider border border-white/20 flex items-center gap-1.5 pointer-events-none">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span>{isEn ? 'In Stock' : 'ክምችት አለ'}</span>
+                      </div>
+                    </div>
+
+                    {/* Card Content Body with Internal Padding */}
+                    <div className="p-5 sm:p-6 flex flex-col flex-grow justify-between">
+                      <div>
+                        {/* Category Eyebrow matching reference card style */}
+                        <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-blue mb-1">
+                          {resolveCategoryTabName(product.category, '')}
+                        </div>
+
+                        {/* Product Name with Crawlable SEO Link */}
+                        <h3 className="text-lg sm:text-xl font-bold font-display text-brand-dark mb-2 leading-tight group-hover:text-brand-blue transition-colors line-clamp-1">
+                          <a
+                            href={`/product/${product.slug}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              navigateToProduct();
+                            }}
+                            className="hover:underline cursor-pointer"
+                            title={`${product.name} - Sourcing & Technical Specs in Addis Ababa, Ethiopia`}
                           >
-                            <Check size={12} className="text-emerald-600" /> 
-                            {t('cat.inRfq')} ({cartItem?.quantity} {cartItem?.unit})
+                            {product.name}
+                          </a>
+                        </h3>
+
+                        {/* Description truncated to 2 lines */}
+                        <p className="text-xs text-brand-dark/60 leading-relaxed mb-3 line-clamp-2">
+                          {product.description}
+                        </p>
+
+                        {/* Primary Chemical Specification / Attributes Row */}
+                        {product.specifications && product.specifications.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mb-3.5">
+                            {product.specifications.slice(0, 3).map((spec, sIdx) => (
+                              <span 
+                                key={sIdx}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-brand-light border border-gray-150 text-[10px] font-semibold text-brand-dark/75"
+                              >
+                                <Sparkles size={10} className="text-brand-blue flex-shrink-0" />
+                                <span className="truncate max-w-[130px]">{spec}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* View Details / Specs button for SEO & UX */}
+                        <button
+                          type="button"
+                          onClick={() => navigateToProduct()}
+                          className="mb-4 text-[10px] font-bold uppercase tracking-wider text-brand-blue hover:text-brand-dark inline-flex items-center gap-1 cursor-pointer transition-colors text-left"
+                        >
+                          <span>{language === 'en' ? 'View Full Specs & COA →' : 'ዝርዝር መረጃና COA ይመልከቱ →'}</span>
+                        </button>
+                      </div>
+
+                      {/* Bottom Bar: Grade/Availability on left, Actions on right */}
+                      <div className="pt-4 border-t border-gray-100 flex items-center justify-between gap-3 mt-auto">
+                        <div className="flex flex-col">
+                          <span className="text-[11px] font-bold text-brand-dark line-clamp-1">
+                            {product.grade || (isEn ? 'Industrial Grade' : 'የኢንዱስትሪ ደረጃ')}
+                          </span>
+                          <span className="text-[9px] font-semibold text-emerald-600 uppercase tracking-wider flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            <span>{isEn ? 'Ex-Stock Kaliti' : 'በቃሊቲ መጋዘን አለ'}</span>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {/* Secondary Action: Add to RFQ List */}
+                          {!isAdded ? (
+                            <button 
+                              type="button"
+                              onClick={() => addToCart(product.id)}
+                              className="w-10 h-10 rounded-xl border border-gray-200 hover:border-brand-blue text-brand-dark/70 hover:text-brand-blue bg-white hover:bg-blue-50/50 flex items-center justify-center cursor-pointer transition-all shadow-2xs shrink-0"
+                              title={isEn ? "Add to RFQ List" : "ወደ መጠየቂያ ዝርዝር ጨምር"}
+                              aria-label={isEn ? `Add ${product.name} to RFQ` : `ወደ መጠየቂያ ዝርዝር ጨምር`}
+                            >
+                              <Plus size={16} />
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-1 bg-brand-light px-2 py-1.5 rounded-xl border border-gray-150">
+                              <button 
+                                type="button"
+                                onClick={() => cartItem && updateCartItemQty(product.id, Math.max(0, cartItem.quantity - 100))}
+                                className="p-1 hover:text-brand-blue text-brand-dark/40 hover:bg-white rounded-md transition-colors cursor-pointer"
+                              >
+                                <Minus size={12} />
+                              </button>
+                              <span className="text-[10px] font-bold text-brand-dark px-1">
+                                {cartItem?.quantity}{cartItem?.unit}
+                              </span>
+                              <button 
+                                type="button"
+                                onClick={() => cartItem && updateCartItemQty(product.id, cartItem.quantity + 100)}
+                                className="p-1 hover:text-brand-blue text-brand-dark/40 hover:bg-white rounded-md transition-colors cursor-pointer"
+                              >
+                                <Plus size={12} />
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Primary Action: Request a Quote Button */}
+                          <button
+                            id={`quote-btn-${product.id}`}
+                            type="button"
+                            onClick={() => handleOpenQuoteModal(product)}
+                            className="py-2.5 px-3.5 sm:px-4 rounded-xl bg-brand-blue text-white text-[10px] font-bold uppercase tracking-wider hover:bg-brand-dark transition-all duration-300 flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-brand-blue/15"
+                          >
+                            <FileText size={13} />
+                            <span>{t('modal.quoteTitle')}</span>
                           </button>
                         </div>
-                      )}
+                      </div>
                     </div>
                   </motion.div>
                 );
